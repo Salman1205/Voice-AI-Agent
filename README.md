@@ -116,7 +116,7 @@ The task brief listed four evaluation criteria. Here is exactly where each one s
 
 | Criterion | Where to look |
 |---|---|
-| **Clean implementation** | [`Implementation quality`](#implementation-quality) section below, [`tests/`](tests/) for the 62 passing tests, [`app/api/calls.py`](app/api/calls.py) for structured error handling, every module starts with `from __future__ import annotations` and is fully type-annotated. |
+| **Clean implementation** | [`Implementation quality`](#implementation-quality) section below, [`tests/`](tests/) for the 60 passing tests, [`app/api/calls.py`](app/api/calls.py) for structured error handling, every module starts with `from __future__ import annotations` and is fully type-annotated. |
 | **FastAPI structure & design** | [`FastAPI patterns used`](#fastapi-patterns-used) section below, [`app/main.py`](app/main.py) for the app factory + lifespan, [`app/api/deps.py`](app/api/deps.py) for dependency injection, [`app/api/schemas.py`](app/api/schemas.py) for Pydantic v2 models. |
 | **Solution architecture** | The architecture diagram above, the [`app/providers/`](app/providers/) provider abstraction layer, [`app/conversation/state.py`](app/conversation/state.py) for the call state machine, [`app/store/sessions.py`](app/store/sessions.py) for storage behind a Protocol. |
 | **Context aware conversation** | [`Context-aware conversation`](#context-aware-conversation) section below, [`app/conversation/engine.py`](app/conversation/engine.py) for the per-turn orchestration, [`app/conversation/state.py`](app/conversation/state.py) for the transcript model. |
@@ -179,18 +179,7 @@ Open http://localhost:8000.
 4. Answer it. Talk to the agent. Watch the transcript appear live in the UI.
 5. When the call ends, the structured outcome JSON is shown in the UI and written to `outcomes/<call_id>.json`.
 
-### Test the agent without Twilio
-
-If you don't want to wire up Twilio (or your number isn't verified on the trial), the conversation engine can be driven from the terminal:
-
-```bash
-python -m scripts.chat              # appointment reminder preset
-python -m scripts.chat --custom     # paste your own persona+goal prompt
-```
-
-You type the caller's side, the real Groq LLM produces the agent's side. The `remember(key, value)` tool calls are surfaced inline so you can verify the live context capture is firing, and the same post-call OutcomeRecorder runs at the end, so the final outcome JSON is identical to what a real call would produce. This is the fastest way to demo conversation flow if Twilio is blocked.
-
-To sanity-check every provider connects before placing a real call:
+To sanity-check that every provider connects before placing a real call:
 
 ```bash
 python -m scripts.smoke_providers
@@ -208,18 +197,14 @@ On every turn, the engine in [`app/conversation/engine.py`](app/conversation/eng
 
 1. The full **system prompt**, composed from the scenario persona, the goal, any context variables (patient name, appointment time, etc.), and the guardrails.
 2. The complete alternating **message history** for this call (`user`, `assistant`, `tool`). Nothing is summarised or truncated within a single call.
-3. The current **`extracted_data` blob**, injected back into the system prompt. If the model captured that the patient's name is "Sara" two turns ago, the next prompt explicitly says so. The model never has to guess what it already knows.
-4. **Tool definitions** for `remember(key, value)` (persist a single fact as soon as the caller states it) and `end_call(reason, farewell)` (terminate gracefully when the goal is met).
+3. A conversation rule that explicitly tells the model to track what the caller has already said across the transcript and not to re-ask for it.
+4. A single **`end_call(reason, farewell)`** tool definition so the model can terminate the call gracefully when the objective is met.
 
-The `remember` tool is the mechanism that closes the loop. The system prompt instructs the model to call it the moment the caller states something worth keeping (their name, a preferred reschedule slot, a confirmation, a cancellation reason). The dispatch in [`app/conversation/engine.py`](app/conversation/engine.py) writes the key/value into `session.extracted_data`, which is then injected back into the system prompt on the very next turn under a "Data captured so far" block. The model sees its own captured facts and is explicitly told not to ask for anything already listed there, which is what makes the conversation feel context-aware rather than goldfish-memoried.
-
-The schema for `remember` is deliberately flat (one string key, one string value per call) because nested object schemas were unreliable on Groq's tool-call validator. A flat schema works across Groq, OpenAI, and Anthropic.
+The mid-call architecture is deliberately minimal on tool calling. An earlier iteration exposed a `remember(key, value)` tool so the model could persist named facts to `session.extracted_data` in flight, but Groq's tool-call validator was unreliable for it: under load the model occasionally emitted the full call body as the tool name field, which Groq rejected with `tool call validation failed: ... not in request.tools`. Rather than ship a tool that intermittently breaks mid-conversation, the live agent leans on its message-history context window and the post-call extractor handles structured capture.
 
 When the model emits `end_call`, the engine dispatches in-process: a brief TTS farewell plays out, then the Twilio teardown runs.
 
-After the call, the OutcomeRecorder in [`app/conversation/outcome.py`](app/conversation/outcome.py) re-reads the full transcript and emits a schema-validated `final_outcome` JSON. It seeds the result with whatever was captured live via `remember`, so post-call extraction only has to fill the gaps the model missed in flight.
-
-After the call ends, a separate post-call extraction pass (in [`app/conversation/outcome.py`](app/conversation/outcome.py)) re-reads the full transcript and produces a clean, schema-validated `final_outcome` JSON. The reasoning here: the model that just ran the conversation has the cleanest view of what happened, and one extra cheap call gives us a machine-readable result without needing brittle regex parsing.
+After the call ends, the OutcomeRecorder in [`app/conversation/outcome.py`](app/conversation/outcome.py) re-reads the full transcript and emits a schema-validated `final_outcome` JSON. This is the reliable path for structured capture: the model that just ran the conversation has the cleanest view of what happened, and one extra cheap call gives a machine-readable result without needing brittle regex parsing or in-flight tool gymnastics.
 
 ---
 
@@ -244,7 +229,7 @@ A list of the FastAPI-idiomatic patterns this project uses, with file references
 
 Concrete claims, each verifiable in the code or by running the suite.
 
-1. **62 passing tests** focused on the highest-value seams: phone validation, prompt sanitization, conversation state machine, engine turn orchestration with a scripted LLM stub, post-call outcome extraction, session store contract, and the telephony error formatter. Run `pytest -v`.
+1. **60 passing tests** focused on the highest-value seams: phone validation, prompt sanitization, conversation state machine, engine turn orchestration with a scripted LLM stub, post-call outcome extraction, session store contract, and the telephony error formatter. Run `pytest -v`.
 2. **Structured error responses.** When the telephony provider fails, the response carries a clean message plus an actionable hint for known Twilio error codes (`21219`, `13227`, `21211`, and others). See [`app/api/calls.py`](app/api/calls.py) `_format_telephony_error`. No raw `TwilioRestException.__str__` output ever reaches the browser, which is important because that string contains ANSI colour escapes when stderr is a TTY.
 3. **Full type annotations.** Every module starts with `from __future__ import annotations` and every function signature is typed. Protocols are used to express interface contracts.
 4. **No `print()` statements in production paths.** All output goes through `structlog` with consistent fields.

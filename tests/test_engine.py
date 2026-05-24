@@ -62,52 +62,6 @@ async def test_text_only_turn() -> None:
 
 
 @pytest.mark.asyncio
-async def test_remember_tool_persists_to_extracted_data() -> None:
-    s = _new_session()
-    remember_tool = {
-        "id": "call_r",
-        "type": "function",
-        "function": {
-            "name": "remember",
-            "arguments": '{"key": "patient_name", "value": "Sara"}',
-        },
-    }
-    engine = ConversationEngine(
-        llm=ScriptedLLM(
-            [
-                LLMChunk(text="Thanks, Sara."),
-                LLMChunk(tool_calls=[remember_tool], finish_reason="tool_calls"),
-            ]
-        )
-    )
-    await engine.respond(s, "My name is Sara")
-    assert s.extracted_data.get("patient_name") == "Sara"
-
-
-@pytest.mark.asyncio
-async def test_remember_tool_ignores_blank_key() -> None:
-    s = _new_session()
-    remember_tool = {
-        "id": "call_r2",
-        "type": "function",
-        "function": {
-            "name": "remember",
-            "arguments": '{"key": "   ", "value": "ignored"}',
-        },
-    }
-    engine = ConversationEngine(
-        llm=ScriptedLLM(
-            [
-                LLMChunk(text="Got it."),
-                LLMChunk(tool_calls=[remember_tool], finish_reason="tool_calls"),
-            ]
-        )
-    )
-    await engine.respond(s, "anything")
-    assert s.extracted_data == {}
-
-
-@pytest.mark.asyncio
 async def test_end_call_tool_terminates() -> None:
     s = _new_session()
     end_tool = {

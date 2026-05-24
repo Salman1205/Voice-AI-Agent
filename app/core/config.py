@@ -25,10 +25,13 @@ class Settings(BaseSettings):
     deepgram_api_key: str = Field(default="")
     groq_api_key: str = Field(default="")
 
-    stt_provider: Literal["deepgram"] = "deepgram"
-    llm_provider: Literal["groq"] = "groq"
-    tts_provider: Literal["deepgram"] = "deepgram"
-    telephony_provider: Literal["twilio"] = "twilio"
+    # Plain str (not Literal) so a new provider added via factory.py works
+    # immediately without also editing this class. The factory raises a clear
+    # error for unsupported values.
+    stt_provider: str = "deepgram"
+    llm_provider: str = "groq"
+    tts_provider: str = "deepgram"
+    telephony_provider: str = "twilio"
 
     groq_model: str = "llama-3.3-70b-versatile"
     deepgram_stt_model: str = "nova-3"

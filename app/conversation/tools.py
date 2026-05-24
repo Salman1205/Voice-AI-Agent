@@ -6,37 +6,14 @@ from typing import Any
 
 
 def conversation_tools() -> list[dict]:
-    # Two tools, both with intentionally flat single-string-value schemas.
-    # Earlier iterations exposed a nested `updates: dict[str, str]` shape and
-    # Groq's tool-call validator would reject ~10% of completions for it. A
-    # flat key/value pair is reliable across Groq, OpenAI, and Anthropic.
+    # Only end_call is exposed mid-call. Earlier iterations also exposed a
+    # `remember(key, value)` tool to capture facts live, but Groq's Llama 3.3
+    # tool-call validator was unreliable for it (the model occasionally
+    # emitted the full call object as the name field, which Groq rejected as
+    # an unknown tool). Structured data capture is therefore handled entirely
+    # by the post-call OutcomeRecorder, which runs one extraction pass over
+    # the full transcript. That path is reliable across providers.
     return [
-        {
-            "type": "function",
-            "function": {
-                "name": "remember",
-                "description": (
-                    "Save a single fact you have just heard from the caller "
-                    "(e.g. patient_name, preferred_slot, confirmation status). "
-                    "Call this AS SOON AS the caller states the fact, so the "
-                    "agent does not ask for it again."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "key": {
-                            "type": "string",
-                            "description": "Short snake_case identifier for the fact (e.g. patient_name).",
-                        },
-                        "value": {
-                            "type": "string",
-                            "description": "The fact as the caller stated it.",
-                        },
-                    },
-                    "required": ["key", "value"],
-                },
-            },
-        },
         {
             "type": "function",
             "function": {
@@ -65,12 +42,6 @@ def conversation_tools() -> list[dict]:
 
 
 def dispatch_tool(name: str, arguments: dict) -> dict[str, Any]:
-    if name == "remember":
-        key = (arguments.get("key") or "").strip()
-        value = arguments.get("value")
-        if not key:
-            return {"ok": False, "error": "missing key"}
-        return {"ok": True, "remembered": key}
     if name == "end_call":
         return {"ok": True, "reason": arguments.get("reason", "unspecified")}
     return {"ok": False, "error": f"Unknown tool: {name}"}

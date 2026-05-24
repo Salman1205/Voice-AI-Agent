@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Voice AI Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .pulse-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+      }
+      .pulse-dot.live {
+        background: #22c55e;
+        animation: pulse 1.4s infinite;
+      }
+      .pulse-dot.idle { background: #94a3b8; }
+      .pulse-dot.error { background: #ef4444; }
+      @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+      }
+      .transcript-row { animation: fadeIn 200ms ease-out; }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-50 text-slate-900">
+    <div class="max-w-5xl mx-auto px-6 py-8">
+      <header class="mb-6">
+        <h1 class="text-3xl font-semibold tracking-tight">Voice AI Agent</h1>
+        <p class="text-slate-600 mt-1">
+          Outbound calls with streaming STT + LLM + TTS. Built on FastAPI.
+        </p>
+      </header>
+
+      <div class="grid md:grid-cols-2 gap-6">
+        <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+          <h2 class="text-lg font-semibold mb-4">Start a call</h2>
+
+          <label class="block text-sm font-medium mb-1" for="phone">Phone number</label>
+          <input
+            id="phone"
+            type="text"
+            placeholder="+14155552671"
+            class="w-full border border-slate-300 rounded-lg px-3 py-2 mb-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <p class="text-xs text-slate-500 mb-4">
+            E.164 format. On a Twilio trial, this number must be verified in your Twilio console.
+          </p>
+
+          <fieldset class="mb-4">
+            <legend class="text-sm font-medium mb-2">Scenario</legend>
+            <label class="inline-flex items-center mr-4">
+              <input type="radio" name="mode" value="preset" class="mr-2" checked />
+              Preset
+            </label>
+            <label class="inline-flex items-center">
+              <input type="radio" name="mode" value="custom" class="mr-2" />
+              Custom prompt
+            </label>
+          </fieldset>
+
+          <div id="preset-pane">
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3 mb-3">
+              <p class="text-sm font-medium" id="preset-name">Loading preset…</p>
+              <p class="text-xs text-slate-600 mt-1" id="preset-goal"></p>
+            </div>
+          </div>
+
+          <div id="custom-pane" class="hidden">
+            <label class="block text-sm font-medium mb-1" for="custom-prompt">
+              Custom prompt (persona &amp; goal)
+            </label>
+            <textarea
+              id="custom-prompt"
+              rows="6"
+              placeholder="You are a friendly assistant calling to remind the user about their dentist appointment tomorrow at 3pm. Confirm or reschedule."
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 mb-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            ></textarea>
+
+            <label class="block text-sm font-medium mb-1" for="custom-opening">
+              Opening line (optional)
+            </label>
+            <input
+              id="custom-opening"
+              type="text"
+              placeholder="Hi, do you have a moment to talk?"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 mb-3"
+            />
+          </div>
+
+          <button
+            id="start-btn"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg py-2.5 disabled:opacity-50 disabled:cursor-not-allowed transition"
+          >
+            Start call
+          </button>
+
+          <p id="error-banner" class="hidden mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3"></p>
+        </section>
+
+        <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold">Live call</h2>
+            <div class="text-sm">
+              <span id="status-dot" class="pulse-dot idle"></span>
+              <span id="status-label" class="text-slate-600">idle</span>
+            </div>
+          </div>
+
+          <p class="text-xs text-slate-500 mb-1">Call ID</p>
+          <p class="text-xs font-mono text-slate-700 break-all mb-4" id="call-id">–</p>
+
+          <h3 class="text-sm font-medium text-slate-700 mb-2">Transcript</h3>
+          <div
+            id="transcript"
+            class="h-64 overflow-y-auto border border-slate-200 rounded-lg bg-slate-50 p-3 text-sm space-y-2"
+          ></div>
+
+          <h3 class="text-sm font-medium text-slate-700 mt-4 mb-2">Outcome</h3>
+          <pre
+            id="outcome"
+            class="text-xs bg-slate-900 text-slate-100 rounded-lg p-3 overflow-x-auto h-44"
+          >(none yet)</pre>
+        </section>
+      </div>
+
+      <footer class="text-center text-xs text-slate-500 mt-8">
+        FastAPI + Twilio + Deepgram + Groq · Built for the Developers Den Associate AI Engineer task
+      </footer>
+    </div>
+
+    <script>
+      "use strict";
+
+      const els = {
+        phone: document.getElementById("phone"),
+        startBtn: document.getElementById("start-btn"),
+        error: document.getElementById("error-banner"),
+        presetName: document.getElementById("preset-name"),
+        presetGoal: document.getElementById("preset-goal"),
+        presetPane: document.getElementById("preset-pane"),
+        customPane: document.getElementById("custom-pane"),
+        customPrompt: document.getElementById("custom-prompt"),
+        customOpening: document.getElementById("custom-opening"),
+        statusDot: document.getElementById("status-dot"),
+        statusLabel: document.getElementById("status-label"),
+        callId: document.getElementById("call-id"),
+        transcript: document.getElementById("transcript"),
+        outcome: document.getElementById("outcome"),
+      };
+
+      let activeSource = null;
+      let transcriptHasContent = false;
+
+      function setWaitingPlaceholder() {
+        clearChildren(els.transcript);
+        const p = document.createElement("p");
+        p.className = "text-slate-400 italic";
+        p.textContent = "Waiting for call…";
+        els.transcript.appendChild(p);
+        transcriptHasContent = false;
+      }
+
+      function clearChildren(node) {
+        while (node.firstChild) node.removeChild(node.firstChild);
+      }
+
+      document.querySelectorAll('input[name="mode"]').forEach((r) => {
+        r.addEventListener("change", () => {
+          const mode = document.querySelector('input[name="mode"]:checked').value;
+          els.presetPane.classList.toggle("hidden", mode !== "preset");
+          els.customPane.classList.toggle("hidden", mode !== "custom");
+        });
+      });
+
+      function showError(msg) {
+        els.error.textContent = msg;
+        els.error.classList.remove("hidden");
+      }
+      function clearError() {
+        els.error.classList.add("hidden");
+        els.error.textContent = "";
+      }
+
+      function setStatus(label, kind = "idle") {
+        els.statusDot.className = `pulse-dot ${kind}`;
+        els.statusLabel.textContent = label;
+      }
+
+      function speakerLabel(role) {
+        if (role === "user") return { text: "Caller", cls: "font-medium text-blue-700" };
+        if (role === "assistant") return { text: "Agent", cls: "font-medium text-emerald-700" };
+        return { text: String(role), cls: "font-medium text-slate-500" };
+      }
+
+      function addTranscriptRow(role, text) {
+        if (!transcriptHasContent) {
+          clearChildren(els.transcript);
+          transcriptHasContent = true;
+        }
+        const row = document.createElement("div");
+        row.className = "transcript-row flex gap-2";
+        const speaker = document.createElement("span");
+        const meta = speakerLabel(role);
+        speaker.className = meta.cls;
+        speaker.textContent = meta.text;
+        const body = document.createElement("span");
+        body.className = "text-slate-800";
+        body.textContent = String(text ?? "");
+        row.appendChild(speaker);
+        row.appendChild(body);
+        els.transcript.appendChild(row);
+        els.transcript.scrollTop = els.transcript.scrollHeight;
+      }
+
+      async function loadPreset() {
+        try {
+          const res = await fetch("/scenarios/preset");
+          if (!res.ok) throw new Error("Failed to load preset");
+          const preset = await res.json();
+          els.presetName.textContent = preset.name;
+          els.presetGoal.textContent = preset.goal;
+        } catch (e) {
+          showError(e.message);
+        }
+      }
+
+      els.startBtn.addEventListener("click", async () => {
+        clearError();
+        const phone = els.phone.value.trim();
+        if (!phone) return showError("Enter a phone number.");
+
+        const mode = document.querySelector('input[name="mode"]:checked').value;
+        const payload = { to: phone, mode };
+
+        if (mode === "preset") {
+          // Preset is self-contained; no extra fields required.
+        } else {
+          const cp = els.customPrompt.value.trim();
+          if (cp.length < 10) return showError("Custom prompt is too short.");
+          payload.custom = {
+            name: "Custom Scenario",
+            custom_prompt: cp,
+            opening_line: els.customOpening.value.trim() || null,
+          };
+        }
+
+        els.startBtn.disabled = true;
+        setStatus("dispatching…", "idle");
+        setWaitingPlaceholder();
+        els.outcome.textContent = "(none yet)";
+
+        try {
+          const res = await fetch("/calls", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            const detail = data && data.detail;
+            const msg =
+              typeof detail === "string"
+                ? detail
+                : detail
+                ? JSON.stringify(detail)
+                : "Failed to start call";
+            throw new Error(msg);
+          }
+          els.callId.textContent = data.call_id;
+          setStatus(data.status, "live");
+          subscribe(data.call_id);
+        } catch (e) {
+          showError(e.message);
+          setStatus("error", "error");
+        } finally {
+          els.startBtn.disabled = false;
+        }
+      });
+
+      function subscribe(callId) {
+        if (activeSource) activeSource.close();
+        activeSource = new EventSource(`/calls/${encodeURIComponent(callId)}/stream`);
+        activeSource.addEventListener("status", (e) => {
+          const { status } = JSON.parse(e.data);
+          const isLive = ["in_progress", "ringing", "dialing"].includes(status);
+          const isFail = ["failed", "no_answer", "busy", "timed_out"].includes(status);
+          setStatus(status, isLive ? "live" : isFail ? "error" : "idle");
+        });
+        activeSource.addEventListener("transcript", (e) => {
+          const events = JSON.parse(e.data);
+          events.forEach((ev) => addTranscriptRow(ev.role, ev.text));
+        });
+        activeSource.addEventListener("outcome", (e) => {
+          els.outcome.textContent = JSON.stringify(JSON.parse(e.data), null, 2);
+          activeSource.close();
+          activeSource = null;
+        });
+        activeSource.addEventListener("error", () => {
+          /* SSE auto-reconnects */
+        });
+      }
+
+      setWaitingPlaceholder();
+      loadPreset();
+    </script>
+  </body>
+</html>

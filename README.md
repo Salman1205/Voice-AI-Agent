@@ -5,7 +5,7 @@
 ![Twilio](https://img.shields.io/badge/Twilio-Media%20Streams-F22F46?logo=twilio&logoColor=white)
 ![Deepgram](https://img.shields.io/badge/Deepgram-Nova--3%20%2B%20Aura--2-13EF93)
 ![Groq](https://img.shields.io/badge/Groq-Llama%203.3%2070B-F55036)
-![Tests](https://img.shields.io/badge/tests-62%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-60%20passing-brightgreen)
 
 > An outbound voice agent that places a real phone call, holds a context-aware conversation with the person who picks up, and produces a structured outcome JSON when the call ends.
 
@@ -104,7 +104,7 @@ app/
     └── media_stream.py      Twilio audio bridge: STT ⇄ LLM ⇄ TTS
 
 web/index.html               single-page UI (vanilla JS + Tailwind CDN)
-tests/                       pytest suite (61 tests)
+tests/                       pytest suite (60 tests)
 outcomes/                    runtime artefacts (gitignored)
 ```
 
@@ -301,7 +301,7 @@ Coverage is focused on the highest-leverage seams, not on chasing a number.
 | `tests/test_session_store.py` | Store contract, TTL eviction |
 | `tests/test_telephony_errors.py` | Twilio error formatting, ANSI stripping, known-code hints |
 
-61 tests, all green.
+60 tests, all green.
 
 ---
 

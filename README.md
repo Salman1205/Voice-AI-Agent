@@ -179,6 +179,23 @@ Open http://localhost:8000.
 4. Answer it. Talk to the agent. Watch the transcript appear live in the UI.
 5. When the call ends, the structured outcome JSON is shown in the UI and written to `outcomes/<call_id>.json`.
 
+### Test the agent without Twilio
+
+If you don't want to wire up Twilio (or your number isn't verified on the trial), the conversation engine can be driven from the terminal:
+
+```bash
+python -m scripts.chat              # appointment reminder preset
+python -m scripts.chat --custom     # paste your own persona+goal prompt
+```
+
+You type the caller's side, the real Groq LLM produces the agent's side. The `remember(key, value)` tool calls are surfaced inline so you can verify the live context capture is firing, and the same post-call OutcomeRecorder runs at the end, so the final outcome JSON is identical to what a real call would produce. This is the fastest way to demo conversation flow if Twilio is blocked.
+
+To sanity-check every provider connects before placing a real call:
+
+```bash
+python -m scripts.smoke_providers
+```
+
 ---
 
 ## Context-aware conversation

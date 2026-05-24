@@ -5,7 +5,7 @@
 ![Twilio](https://img.shields.io/badge/Twilio-Media%20Streams-F22F46?logo=twilio&logoColor=white)
 ![Deepgram](https://img.shields.io/badge/Deepgram-Nova--3%20%2B%20Aura--2-13EF93)
 ![Groq](https://img.shields.io/badge/Groq-Llama%203.3%2070B-F55036)
-![Tests](https://img.shields.io/badge/tests-61%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-60%20passing-brightgreen)
 
 > An outbound voice agent that places a real phone call, holds a context-aware conversation with the person who picks up, and produces a structured outcome JSON when the call ends.
 
@@ -43,18 +43,7 @@ The default scenario is an **appointment reminder and confirmation** call for a 
 
 ## Demo
 
-| | |
-|---|---|
-| ![Idle UI](docs/screenshots/ui-idle.png) | ![Call in progress](docs/screenshots/ui-in-call.png) |
-| The UI before placing a call. Pick a number, pick a scenario, hit start. | Live transcript streams in as you speak. Status dot reflects the call state. |
-
-The Twilio call logs from development show real end-to-end calls completing successfully (Direction: Outgoing API, Status: Completed). See the call logs screenshot below.
-
-The Twilio call logs from development show the system completing real end-to-end conversations:
-
-<p align="center">
-  <img src="docs/screenshots/call-logs.png" alt="Successful Twilio call logs" width="780">
-</p>
+The screenshot at the top of this README shows the single-page UI: phone number, scenario selector, and the live transcript and outcome panes on the right. During development the system completed real end-to-end calls (Direction: Outgoing API, Status: Completed) before Twilio trial restrictions on Pakistani numbers kicked in.
 
 ---
 
@@ -127,7 +116,7 @@ The task brief listed four evaluation criteria. Here is exactly where each one s
 
 | Criterion | Where to look |
 |---|---|
-| **Clean implementation** | [`Implementation quality`](#implementation-quality) section below, [`tests/`](tests/) for the 61 passing tests, [`app/api/calls.py`](app/api/calls.py) for structured error handling, every module starts with `from __future__ import annotations` and is fully type-annotated. |
+| **Clean implementation** | [`Implementation quality`](#implementation-quality) section below, [`tests/`](tests/) for the 60 passing tests, [`app/api/calls.py`](app/api/calls.py) for structured error handling, every module starts with `from __future__ import annotations` and is fully type-annotated. |
 | **FastAPI structure & design** | [`FastAPI patterns used`](#fastapi-patterns-used) section below, [`app/main.py`](app/main.py) for the app factory + lifespan, [`app/api/deps.py`](app/api/deps.py) for dependency injection, [`app/api/schemas.py`](app/api/schemas.py) for Pydantic v2 models. |
 | **Solution architecture** | The architecture diagram above, the [`app/providers/`](app/providers/) provider abstraction layer, [`app/conversation/state.py`](app/conversation/state.py) for the call state machine, [`app/store/sessions.py`](app/store/sessions.py) for storage behind a Protocol. |
 | **Context aware conversation** | [`Context-aware conversation`](#context-aware-conversation) section below, [`app/conversation/engine.py`](app/conversation/engine.py) for the per-turn orchestration, [`app/conversation/state.py`](app/conversation/state.py) for the transcript model. |
@@ -232,7 +221,7 @@ A list of the FastAPI-idiomatic patterns this project uses, with file references
 
 Concrete claims, each verifiable in the code or by running the suite.
 
-1. **61 passing tests** focused on the highest-value seams: phone validation, prompt sanitization, conversation state machine, engine turn orchestration with a scripted LLM stub, post-call outcome extraction, session store contract, and the telephony error formatter. Run `pytest -v`.
+1. **60 passing tests** focused on the highest-value seams: phone validation, prompt sanitization, conversation state machine, engine turn orchestration with a scripted LLM stub, post-call outcome extraction, session store contract, and the telephony error formatter. Run `pytest -v`.
 2. **Structured error responses.** When the telephony provider fails, the response carries a clean message plus an actionable hint for known Twilio error codes (`21219`, `13227`, `21211`, and others). See [`app/api/calls.py`](app/api/calls.py) `_format_telephony_error`. No raw `TwilioRestException.__str__` output ever reaches the browser, which is important because that string contains ANSI colour escapes when stderr is a TTY.
 3. **Full type annotations.** Every module starts with `from __future__ import annotations` and every function signature is typed. Protocols are used to express interface contracts.
 4. **No `print()` statements in production paths.** All output goes through `structlog` with consistent fields.

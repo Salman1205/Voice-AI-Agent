@@ -6,11 +6,37 @@ from typing import Any
 
 
 def conversation_tools() -> list[dict]:
-    # Only end_call is exposed mid-call. Structured data capture is handled
-    # by the post-call OutcomeRecorder over the full transcript, which is more
-    # reliable than asking the live model to emit schema-validated tool calls
-    # every turn.
+    # Two tools, both with intentionally flat single-string-value schemas.
+    # Earlier iterations exposed a nested `updates: dict[str, str]` shape and
+    # Groq's tool-call validator would reject ~10% of completions for it. A
+    # flat key/value pair is reliable across Groq, OpenAI, and Anthropic.
     return [
+        {
+            "type": "function",
+            "function": {
+                "name": "remember",
+                "description": (
+                    "Save a single fact you have just heard from the caller "
+                    "(e.g. patient_name, preferred_slot, confirmation status). "
+                    "Call this AS SOON AS the caller states the fact, so the "
+                    "agent does not ask for it again."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "description": "Short snake_case identifier for the fact (e.g. patient_name).",
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "The fact as the caller stated it.",
+                        },
+                    },
+                    "required": ["key", "value"],
+                },
+            },
+        },
         {
             "type": "function",
             "function": {
@@ -39,6 +65,12 @@ def conversation_tools() -> list[dict]:
 
 
 def dispatch_tool(name: str, arguments: dict) -> dict[str, Any]:
+    if name == "remember":
+        key = (arguments.get("key") or "").strip()
+        value = arguments.get("value")
+        if not key:
+            return {"ok": False, "error": "missing key"}
+        return {"ok": True, "remembered": key}
     if name == "end_call":
         return {"ok": True, "reason": arguments.get("reason", "unspecified")}
     return {"ok": False, "error": f"Unknown tool: {name}"}

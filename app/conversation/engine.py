@@ -111,7 +111,12 @@ class ConversationEngine:
                 args = {}
             result = dispatch_tool(name, args)
             tool_results.append({"name": name, "arguments": args, "result": result})
-            if name == "end_call":
+            if name == "remember":
+                key = (args.get("key") or "").strip()
+                value = args.get("value")
+                if key:
+                    session.extracted_data[key] = value
+            elif name == "end_call":
                 end_call = True
                 end_reason = args.get("reason", "agent_ended")
                 farewell = args.get("farewell") or "Thank you, goodbye."

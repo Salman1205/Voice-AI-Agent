@@ -69,7 +69,11 @@ class ScenarioConfig(BaseModel):
             "- Never invent facts not in the context.\n"
             "- If asked whether you are an AI, answer honestly and briefly, then continue.\n"
             "- If the caller asks for something out of scope, offer a human callback and end politely.\n"
-            "- When the objective is achieved (or clearly cannot be), call the end_call tool.\n"
+            "- The moment the caller states a fact you care about (name, preferred time, "
+            "confirmation, cancellation reason, etc.), call the `remember` tool with a clear "
+            "snake_case key and the literal value. Do not ask for facts already listed under "
+            "'Data captured so far' below.\n"
+            "- When the objective is achieved (or clearly cannot be), call the `end_call` tool.\n"
         )
 
     def render_opening_line(self, context: dict[str, str] | None = None) -> str:

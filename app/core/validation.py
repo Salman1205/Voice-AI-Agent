@@ -29,7 +29,7 @@ def normalize_phone(raw: str) -> str:
     return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
 
-def sanitize_prompt(text: str, max_chars: int = 4000) -> str:
+def sanitize_prompt(text: str | None, max_chars: int = 4000) -> str:
     """Strip control characters and clamp length on user-supplied prompt text."""
     if text is None:
         return ""

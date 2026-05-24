@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sse_starlette.sse import EventSourceResponse
+from twilio.base.exceptions import TwilioRestException
 
 from app.api.deps import (
     get_app_settings,
@@ -32,6 +34,51 @@ from app.store.sessions import SessionStore
 
 log = get_logger(__name__)
 router = APIRouter(prefix="/calls", tags=["calls"])
+
+# ANSI escape codes injected by Twilio's exception __str__ when stderr is a TTY.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+# Friendly explanations for common Twilio error codes so the UI can show
+# an actionable hint instead of raw provider output.
+_TWILIO_ERROR_HINTS: dict[int, str] = {
+    21219: (
+        "This number isn't verified on your Twilio trial account. "
+        "Verify it at https://console.twilio.com/us1/develop/phone-numbers/manage/verified, "
+        "or upgrade your Twilio account to call any number."
+    ),
+    13227: (
+        "Geo permissions block calls to this destination. Enable the "
+        "destination country in Twilio Console → Voice → Settings → Geo Permissions."
+    ),
+    21211: "The 'To' number is invalid. Use E.164 format (e.g. +14155552671).",
+    21210: "The 'From' number is not a Twilio number on this account.",
+    21214: "The 'To' number cannot be reached from this Twilio account.",
+    20003: "Twilio authentication failed. Check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.",
+    20404: "Twilio resource not found. Check the SID or endpoint being used.",
+}
+
+
+def _format_telephony_error(exc: Exception) -> str:
+    """Build a clean, user-facing message from a telephony provider exception.
+
+    Why: TwilioRestException.__str__ embeds ANSI color escapes when stderr is
+    a TTY, which leak into HTTP responses and render as garbage in the browser.
+    Use the structured fields instead, and promote known codes to actionable
+    hints so trial-account issues are self-service.
+    """
+    if isinstance(exc, TwilioRestException):
+        code = exc.code
+        hint = _TWILIO_ERROR_HINTS.get(code) if code is not None else None
+        if hint:
+            return f"Twilio error {code}: {exc.msg.strip()} — {hint}"
+        docs = (
+            f"https://www.twilio.com/docs/errors/{code}"
+            if code is not None
+            else "https://www.twilio.com/docs/errors"
+        )
+        prefix = f"Twilio error {code}" if code is not None else f"Twilio HTTP {exc.status}"
+        return f"{prefix}: {exc.msg.strip()} (see {docs})"
+    return _ANSI_RE.sub("", str(exc)).strip()
 
 
 @router.post(
@@ -93,15 +140,19 @@ async def create_call(
             machine_detection=settings.answering_machine_detection,
         )
     except Exception as exc:  # noqa: BLE001
-        session.mark_status(CallStatus.FAILED, reason=f"dispatch_error: {exc}")
+        clean = _format_telephony_error(exc)
+        session.mark_status(CallStatus.FAILED, reason=f"dispatch_error: {clean}")
         await store.put(session)
-        log.warning("call.dispatch_error", call_id=session.call_id, error=str(exc))
+        log.warning(
+            "call.dispatch_error",
+            call_id=session.call_id,
+            error=clean,
+            twilio_code=getattr(exc, "code", None),
+            twilio_status=getattr(exc, "status", None),
+        )
         raise HTTPException(
             status_code=502,
-            detail=(
-                f"Telephony provider failed to place call: {exc}. "
-                "If on Twilio trial, ensure the number is verified."
-            ),
+            detail=f"Telephony provider failed to place call: {clean}",
         ) from exc
 
     session.provider_call_id = handle.provider_call_id

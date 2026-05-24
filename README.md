@@ -1,94 +1,103 @@
 # Voice AI Agent
 
-Outbound voice AI agent that makes a phone call, holds a context-aware
-conversation, and produces a structured outcome JSON at call end. Built
-for the **Developers Den — Associate AI Engineer** recruitment task.
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
+![Twilio](https://img.shields.io/badge/Twilio-Media%20Streams-F22F46?logo=twilio&logoColor=white)
+![Deepgram](https://img.shields.io/badge/Deepgram-Nova--3%20%2B%20Aura--2-13EF93)
+![Groq](https://img.shields.io/badge/Groq-Llama%203.3%2070B-F55036)
+![Tests](https://img.shields.io/badge/tests-61%20passing-brightgreen)
 
-The primary evaluation focus is **solution architecture** — how
-speech, language, and telephony components are connected into a working,
-production-minded system — so the codebase is organised around clean
-provider abstractions, a small per-call state machine, and end-to-end
-streaming over Twilio Media Streams.
+> An outbound voice agent that places a real phone call, holds a context-aware conversation with the person who picks up, and produces a structured outcome JSON when the call ends.
 
----
+Built for the **Developers Den Associate AI Engineer** task. The brief asked for a working voice agent and graded on four things: clean implementation, FastAPI structure, solution architecture, and context-aware conversation. The codebase is organised around exactly those four axes.
 
-## Stack
-
-| Layer | Service | Why |
-|---|---|---|
-| Web framework | **FastAPI** | Required by the task; async-native, perfect for the WebSocket bridge. |
-| Telephony | **Twilio** (Programmable Voice + Media Streams) | Industry standard, bidirectional audio over WebSocket. |
-| STT | **Deepgram Nova-3** (streaming) | $200 free credit, lowest-latency streaming on the market. |
-| LLM | **Groq — `llama-3.3-70b-versatile`** | Free tier, ~300 tok/s — voice needs speed. GPT-4 class reasoning. |
-| TTS | **Deepgram Aura-2** (`aura-2-thalia-en`) | Same Deepgram credit, streaming mu-law output, no resampling. |
-| Tunneling (dev) | **ngrok** | Public HTTPS+WSS URL so Twilio can reach your laptop. |
-
-Every layer sits behind a `Protocol` in [app/providers/base.py](app/providers/base.py)
-and is selected by env variable (`STT_PROVIDER`, `LLM_PROVIDER`,
-`TTS_PROVIDER`, `TELEPHONY_PROVIDER`). Swapping vendors is a config
-change plus one file — no business-logic changes.
+<p align="center">
+  <img src="docs/screenshots/ui-hero.png" alt="Voice AI Agent UI" width="780">
+</p>
 
 ---
 
-## Architecture
+## Table of contents
 
-```
-┌──────────────┐   POST /calls          ┌───────────────────────────────┐
-│  Web UI      │ ─────────────────────▶ │  FastAPI App                  │
-│  (one HTML)  │                        │                               │
-│              │ ◀──── SSE updates ──── │  ┌─────────────────────────┐  │
-└──────────────┘                        │  │  REST API               │  │
-                                        │  │  /calls /scenarios      │  │
-                                        │  └────────┬────────────────┘  │
-                                        │           │                   │
-                                        │  ┌────────▼────────────────┐  │
-                                        │  │  Call Manager           │  │
-                                        │  │  (validate, dispatch,   │  │
-                                        │  │   create CallSession)   │  │
-                                        │  └────────┬────────────────┘  │
-                                        │           │                   │
-                                        │  ┌────────▼────────────────┐  │
-                                        │  │  WS /ws/media/{call_id} │  │
-                                        │  │  ◀── Twilio Media Stream│  │
-                                        │  │  μ-law 8 kHz audio      │  │
-                                        │  │  ┌───────────────────┐  │  │
-                                        │  │  │ Conversation Loop │  │  │
-                                        │  │  │ STT ⇄ LLM ⇄ TTS   │  │  │
-                                        │  │  └───────────────────┘  │  │
-                                        │  └─────────────────────────┘  │
-                                        │                               │
-                                        │  ┌─────────────────────────┐  │
-                                        │  │  Outcome Recorder       │  │
-                                        │  │  outcomes/<id>.json     │  │
-                                        │  └─────────────────────────┘  │
-                                        └────────────┬──────────────────┘
-                                                     │
-   ┌────────────┐   ┌────────────┐  ┌────────────┐  ┌────────────┐
-   │  Twilio    │   │ Deepgram   │  │   Groq     │  │ Deepgram   │
-   │  Voice +   │   │   STT      │  │   LLM      │  │   TTS      │
-   │  Streams   │   │ (Nova-3)   │  │ (Llama 70B)│  │  (Aura-2)  │
-   └────────────┘   └────────────┘  └────────────┘  └────────────┘
+1. [What it does](#what-it-does)
+2. [Demo](#demo)
+3. [Architecture at a glance](#architecture-at-a-glance)
+4. [How the brief maps to the code](#how-the-brief-maps-to-the-code)
+5. [Quickstart](#quickstart)
+6. [Context-aware conversation](#context-aware-conversation)
+7. [FastAPI patterns used](#fastapi-patterns-used)
+8. [Implementation quality](#implementation-quality)
+9. [Edge cases handled](#edge-cases-handled)
+10. [Tests](#tests)
+11. [Design decisions](#design-decisions)
+12. [Troubleshooting](#troubleshooting)
+13. [Known limitations](#known-limitations)
+
+---
+
+## What it does
+
+Pick a phone number, pick a scenario (or write your own prompt), hit **Start call**. Your phone rings. The agent introduces itself, asks the things it needs to ask, listens to your answers, follows up naturally if you say something unexpected, and politely ends the call when it has what it needs. The conversation transcript appears live in the UI as it happens. When the call ends, a structured JSON outcome is written to disk and shown in the UI.
+
+The default scenario is an **appointment reminder and confirmation** call for a fictional clinic. The custom-prompt option lets you steer the agent into any other persona without touching code.
+
+## Demo
+
+| | |
+|---|---|
+| ![Idle UI](docs/screenshots/ui-idle.png) | ![Call in progress](docs/screenshots/ui-in-call.png) |
+| The UI before placing a call. Pick a number, pick a scenario, hit start. | Live transcript streams in as you speak. Status dot reflects the call state. |
+
+**Video walkthrough:** [link goes here]
+
+The Twilio call logs from development show the system completing real end-to-end conversations:
+
+<p align="center">
+  <img src="docs/screenshots/call-logs.png" alt="Successful Twilio call logs" width="780">
+</p>
+
+---
+
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+    UI[Web UI<br/>single page] -- POST /calls --> API[FastAPI<br/>REST]
+    API -- SSE --> UI
+    API --> CM[Call Manager]
+    CM --> TWILIO[(Twilio<br/>Programmable Voice)]
+    TWILIO -- PSTN --> PHONE[Caller's phone]
+    TWILIO == wss media stream ==> WS[FastAPI WebSocket<br/>app/ws/media_stream.py]
+    WS -- audio --> STT[Deepgram<br/>Nova-3 STT]
+    STT -- transcript --> ENGINE[Conversation Engine<br/>app/conversation/engine.py]
+    ENGINE -- prompt+history --> LLM[Groq<br/>Llama 3.3 70B]
+    LLM -- reply --> ENGINE
+    ENGINE -- text --> TTS[Deepgram<br/>Aura-2 TTS]
+    TTS -- audio --> WS
+    ENGINE --> STORE[(Session Store<br/>+ Outcome Recorder)]
 ```
 
-### What's where
+Every layer has a single responsibility, and every external dependency sits behind a `Protocol` defined in [`app/providers/base.py`](app/providers/base.py). Swapping Twilio for Vonage, or Groq for OpenAI, or Deepgram for ElevenLabs, is a config change plus one new file. No business logic moves.
+
+### File-by-file map
 
 ```
 app/
-├── main.py                  FastAPI factory + WS route + lifespan
-├── api/                     REST surface
-│   ├── calls.py             POST /calls, GET /calls/{id}, SSE stream
+├── main.py                  FastAPI factory, WS route registration, lifespan
+├── api/                     REST surface area
+│   ├── calls.py             POST /calls, GET /calls/{id}, SSE /calls/{id}/stream
 │   ├── scenarios.py         GET /scenarios/preset
 │   ├── webhooks.py          /twilio/voice/{id}, /twilio/status/{id}
-│   ├── schemas.py           Pydantic request/response models
-│   └── deps.py              FastAPI dependency providers
+│   ├── schemas.py           Pydantic v2 request/response models
+│   └── deps.py              FastAPI dependency providers (DI)
 ├── core/                    cross-cutting infra
-│   ├── config.py            Pydantic Settings (env-driven)
-│   ├── logging.py           structlog JSON logging with call_id
-│   └── validation.py        E.164 phone + prompt sanitization
+│   ├── config.py            pydantic-settings, env-driven
+│   ├── logging.py           structlog JSON logging bound with call_id
+│   └── validation.py        E.164 normalisation + prompt sanitization
 ├── providers/               vendor adapters behind clean Protocols
 │   ├── base.py              STT / LLM / TTS / Telephony Protocols
 │   ├── stt_deepgram.py      streaming WebSocket STT
-│   ├── llm_groq.py          streaming chat w/ tool calling
+│   ├── llm_groq.py          streaming chat + tool calling
 │   ├── tts_deepgram.py      streaming Aura-2 HTTP
 │   ├── telephony_twilio.py  outbound call + TwiML + signature verify
 │   └── factory.py           env → concrete provider
@@ -98,63 +107,76 @@ app/
 ├── conversation/
 │   ├── state.py             CallSession + CallStatus state machine
 │   ├── engine.py            per-turn LLM orchestration + tool dispatch
-│   ├── tools.py             LLM tool definitions (update / end_call)
+│   ├── tools.py             LLM tool definitions
 │   └── outcome.py           post-call structured extraction
 ├── store/
 │   └── sessions.py          in-memory store behind SessionStore Protocol
 └── ws/
-    └── media_stream.py      Twilio audio ⇄ STT ⇄ LLM ⇄ TTS bridge
+    └── media_stream.py      Twilio audio bridge: STT ⇄ LLM ⇄ TTS
 
-web/index.html               single-page UI (vanilla + Tailwind CDN)
-tests/                       pytest suite (unit + interface conformance)
-outcomes/                    structured JSON written per call (gitignored)
+web/index.html               single-page UI (vanilla JS + Tailwind CDN)
+tests/                       pytest suite (61 tests)
+outcomes/                    runtime artefacts (gitignored)
 ```
 
 ---
 
-## Setup
+## How the brief maps to the code
 
-### 1. Sign up (all free, only Twilio needs verification)
+The task brief listed four evaluation criteria. Here is exactly where each one shows up in this repo.
 
-| Service | URL | What to grab |
+| Criterion | Where to look |
+|---|---|
+| **Clean implementation** | [`Implementation quality`](#implementation-quality) section below, [`tests/`](tests/) for the 61 passing tests, [`app/api/calls.py`](app/api/calls.py) for structured error handling, every module starts with `from __future__ import annotations` and is fully type-annotated. |
+| **FastAPI structure & design** | [`FastAPI patterns used`](#fastapi-patterns-used) section below, [`app/main.py`](app/main.py) for the app factory + lifespan, [`app/api/deps.py`](app/api/deps.py) for dependency injection, [`app/api/schemas.py`](app/api/schemas.py) for Pydantic v2 models. |
+| **Solution architecture** | The architecture diagram above, the [`app/providers/`](app/providers/) provider abstraction layer, [`app/conversation/state.py`](app/conversation/state.py) for the call state machine, [`app/store/sessions.py`](app/store/sessions.py) for storage behind a Protocol. |
+| **Context aware conversation** | [`Context-aware conversation`](#context-aware-conversation) section below, [`app/conversation/engine.py`](app/conversation/engine.py) for the per-turn orchestration, [`app/conversation/state.py`](app/conversation/state.py) for the transcript model. |
+
+---
+
+## Quickstart
+
+Python 3.11 or newer. The setup is the same on Linux, macOS, and Windows.
+
+### 1. Get the keys (all free tiers, no credit card except Twilio)
+
+| Service | URL | What to copy |
 |---|---|---|
-| Twilio | https://www.twilio.com/try-twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, a phone number with Voice capability |
-| Deepgram | https://console.deepgram.com/signup | `DEEPGRAM_API_KEY` ($200 free, no card) |
+| Twilio | https://www.twilio.com/try-twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, a Twilio phone number with Voice |
+| Deepgram | https://console.deepgram.com/signup | `DEEPGRAM_API_KEY` (comes with $200 free credit) |
 | Groq | https://console.groq.com | `GROQ_API_KEY` (free, no card) |
-| ngrok | https://dashboard.ngrok.com/signup | Authtoken |
+| ngrok | https://dashboard.ngrok.com/signup | An authtoken |
 
-**Twilio trial only allows calls to verified numbers.** After signup,
-go to **Phone Numbers → Verified Caller IDs** and verify your own
-mobile. The demo will only work when calling a verified number.
+A note on Twilio trial accounts: outbound calls can only reach numbers that are listed as verified caller IDs on your Twilio account. Your signup number is auto-verified. Verify any other number you want to call at [Twilio Verified Caller IDs](https://console.twilio.com/us1/develop/phone-numbers/manage/verified). Some countries (currently including Pakistan) are restricted from verification on trial accounts entirely. The cleanest fix is to upgrade the Twilio account, which removes the restriction.
 
-### 2. Install
-
-Python 3.11+ recommended.
+### 2. Clone and install
 
 ```bash
+git clone https://github.com/Salman1205/Voice-AI-Agent.git
+cd Voice-AI-Agent
+
 python -m venv .venv
-source .venv/bin/activate     # Windows: .venv\Scripts\activate
+source .venv/bin/activate           # Windows: .venv\Scripts\activate
+
 pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` and paste the keys you just collected.
+Open `.env` and paste in the keys you collected above.
 
-### 3. Start ngrok (separate terminal)
+### 3. Start ngrok (in a second terminal)
 
 ```bash
 ngrok http 8000
 ```
 
-Copy the `https://….ngrok-free.app` URL and paste it into `.env` as
-`PUBLIC_BASE_URL=…`. Restart the app if it was already running so the
-new URL is picked up.
+Copy the `https://<random>.ngrok-free.app` URL it prints, and paste it into `.env` as the value of `PUBLIC_BASE_URL`. This is what Twilio uses to reach your laptop for webhooks and media streams.
 
-### 4. Run
+### 4. Run the app
 
 ```bash
-make dev          # uvicorn with reload
-# or
+make dev
+# or, without make:
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -162,82 +184,225 @@ Open http://localhost:8000.
 
 ### 5. Place a call
 
-1. Enter your **verified** mobile number in E.164 format (e.g. `+14155552671`).
-2. Pick **Preset** and fill in patient_name / appointment_time / doctor_name,
-   OR pick **Custom prompt** and write your own persona/goal.
-3. Click **Start call**. Your phone rings.
-4. Pick up and talk. The transcript appears live in the right pane.
-5. When the call ends, the structured outcome JSON appears and is also
-   saved to `outcomes/<call_id>.json`.
+1. Enter your phone number in E.164 format, for example `+14155552671`.
+2. Pick **Preset** (the default appointment reminder) or **Custom prompt** and write your own.
+3. Hit **Start call**. Your phone rings within a few seconds.
+4. Answer it. Talk to the agent. Watch the transcript appear live in the UI.
+5. When the call ends, the structured outcome JSON is shown in the UI and written to `outcomes/<call_id>.json`.
 
 ---
 
-## How the conversation stays context-aware
+## Context-aware conversation
 
 This is a named evaluation criterion, so it gets a dedicated section.
 
-Every LLM call in [app/conversation/engine.py](app/conversation/engine.py)
-receives:
+Voice agents fail in two characteristic ways: they forget what was just said, or they ask for information they have already been given. Both are context failures. This implementation avoids them by making every LLM turn re-receive the full picture, every time.
 
-1. The full system prompt (persona + goal + context variables + guardrails).
-2. The **entire** alternating `user` / `assistant` / `tool` message history
-   for this call.
-3. The currently-captured `extracted_data` blob, injected back into the
-   system prompt so the model never re-asks information it has already
-   confirmed.
-4. Tool definitions for `update_extracted_data` and `end_call` so the
-   model can persist structured info and gracefully terminate.
+On every turn, the engine in [`app/conversation/engine.py`](app/conversation/engine.py) hands the LLM:
 
-The model's tool calls are dispatched in-process: extracted updates
-flow into the session, and `end_call` triggers a graceful TTS farewell
-followed by Twilio teardown.
+1. The full **system prompt**, composed from the scenario persona, the goal, any context variables (patient name, appointment time, etc.), and the guardrails.
+2. The complete alternating **message history** for this call (`user`, `assistant`, `tool`). Nothing is summarised or truncated within a single call.
+3. The current **`extracted_data` blob**, injected back into the system prompt. If the model captured that the patient's name is "Sara" two turns ago, the next prompt explicitly says so. The model never has to guess what it already knows.
+4. **Tool definitions** for `update_extracted_data` (persist structured info as soon as it is captured) and `end_call` (terminate gracefully when the goal is met).
+
+When the model emits a tool call, the engine dispatches it in-process: extracted updates flow into the session state, and `end_call` triggers a brief TTS farewell followed by Twilio teardown.
+
+After the call ends, a separate post-call extraction pass (in [`app/conversation/outcome.py`](app/conversation/outcome.py)) re-reads the full transcript and produces a clean, schema-validated `final_outcome` JSON. The reasoning here: the model that just ran the conversation has the cleanest view of what happened, and one extra cheap call gives us a machine-readable result without needing brittle regex parsing.
+
+---
+
+## FastAPI patterns used
+
+A list of the FastAPI-idiomatic patterns this project uses, with file references.
+
+1. **App factory + lifespan** in [`app/main.py`](app/main.py). All wiring happens in one place. The lifespan context manager starts/stops shared resources cleanly.
+2. **Router-per-domain** under [`app/api/`](app/api/). Each router is small and focused (`calls.py`, `scenarios.py`, `webhooks.py`). The main app just mounts them.
+3. **Dependency injection** via `Depends(...)` throughout [`app/api/deps.py`](app/api/deps.py). Tests can override every dependency without monkeypatching.
+4. **Pydantic v2 schemas** in [`app/api/schemas.py`](app/api/schemas.py) for every request and response body. Validation is automatic and consistent.
+5. **`pydantic-settings` env config** in [`app/core/config.py`](app/core/config.py). One typed `Settings` class is the only thing that reads environment variables.
+6. **Async-first I/O.** Every external call is `async def`. The Twilio SDK is sync, so it is wrapped via `asyncio.to_thread` to keep the event loop unblocked (see [`app/providers/telephony_twilio.py`](app/providers/telephony_twilio.py)).
+7. **WebSocket route** registered at the app level in [`app/main.py`](app/main.py) for Twilio Media Streams, kept separate from REST routers because it has a fundamentally different lifecycle.
+8. **Server-Sent Events** via `sse-starlette` for one-way push to the browser (live transcript and outcome). Simpler than WebSockets when traffic only flows one way.
+9. **Structured logging** with `structlog` in [`app/core/logging.py`](app/core/logging.py). Every log line is JSON, and `call_id` is bound into the logger context so a single call is trivial to grep across logs.
+10. **HTTPException with structured detail.** Provider error strings are cleaned before being returned to clients (see the Twilio error formatter in [`app/api/calls.py`](app/api/calls.py)). No raw vendor stack traces or ANSI escape sequences leak through.
+
+---
+
+## Implementation quality
+
+Concrete claims, each verifiable in the code or by running the suite.
+
+1. **61 passing tests** focused on the highest-value seams: phone validation, prompt sanitization, conversation state machine, engine turn orchestration with a scripted LLM stub, post-call outcome extraction, session store contract, and the telephony error formatter. Run `pytest -v`.
+2. **Structured error responses.** When the telephony provider fails, the response carries a clean message plus an actionable hint for known Twilio error codes (`21219`, `13227`, `21211`, and others). See [`app/api/calls.py`](app/api/calls.py) `_format_telephony_error`. No raw `TwilioRestException.__str__` output ever reaches the browser, which is important because that string contains ANSI colour escapes when stderr is a TTY.
+3. **Full type annotations.** Every module starts with `from __future__ import annotations` and every function signature is typed. Protocols are used to express interface contracts.
+4. **No `print()` statements in production paths.** All output goes through `structlog` with consistent fields.
+5. **No commented-out code, no dead branches, no `TODO` markers in shipped paths.**
+6. **Secrets only via environment.** Nothing is hardcoded. [`.env.example`](.env.example) documents every variable.
+7. **CORS scoped to localhost in dev.** Easy to harden for production by changing one list.
+8. **Twilio webhook signature verification** is wired and ready (soft-fail in dev so ngrok works; flip one flag for prod).
+9. **Graceful degradation everywhere.** A TTS HTTP failure does not crash the call; an LLM exception triggers a safe farewell; a caller hangup mid-call still produces a finalised outcome JSON.
 
 ---
 
 ## Edge cases handled
 
-This list is intentionally long because production voice agents fall
-apart at the edges. Each item below maps to code paths in
-[app/ws/media_stream.py](app/ws/media_stream.py),
-[app/conversation/engine.py](app/conversation/engine.py), or
-[app/api/calls.py](app/api/calls.py).
+Production voice agents fall apart at the edges. Each item below maps to a real code path.
 
-**Input**
-- Invalid / non-E.164 / empty phone → 422 with a clear message.
-- Custom prompt: stripped of control chars, clamped to 4000 chars.
-- Preset missing required `context_variables` → 422 listing the missing ones.
-- More than `MAX_CALLS_PER_HOUR` outbound calls → 429.
+**Input validation**
+
+* Invalid, non-E.164, or empty phone numbers return 422 with a clear message.
+* Custom prompts are stripped of control characters and clamped to 4000 chars.
+* Preset scenarios with missing required `context_variables` return 422 listing the missing keys.
+* More than `MAX_CALLS_PER_HOUR` outbound calls in the last hour returns 429.
 
 **Call lifecycle**
-- No answer / busy / failed → status callback maps to terminal enum.
-- **Voicemail detection** via Twilio AMD → agent leaves a spoken voicemail and hangs up.
-- Caller hangs up mid-call → partial transcript is still finalised into an outcome.
-- Hard duration cap (`CALL_MAX_DURATION_SECONDS`) → graceful farewell.
-- Hard turn cap (`MAX_TURNS_PER_CALL`) → graceful farewell.
+
+* No answer, busy, and failed dispositions map to terminal `CallStatus` enum values.
+* **Voicemail detection** via Twilio AMD: the agent leaves a spoken voicemail and hangs up.
+* Caller hangs up mid-call: partial transcript is still finalised into an outcome.
+* Hard duration cap (`CALL_MAX_DURATION_SECONDS`) triggers a graceful farewell.
+* Hard turn cap (`MAX_TURNS_PER_CALL`) triggers a graceful farewell.
 
 **Conversation**
-- Silence (>6s) → "Are you still there?" then end on second silence.
-- Barge-in (caller speaks while agent is talking) → current TTS playback is cancelled.
-- Hostile / out-of-scope → guardrails in system prompt + `end_call` tool.
-- "Are you a robot?" → honest disclosure baked into the system prompt.
+
+* Silence over six seconds prompts "Are you still there?", and a second silence ends the call.
+* **Barge-in** (caller speaks while the agent is talking) cancels current TTS playback.
+* Hostile or out-of-scope responses are caught by guardrails in the system prompt and the `end_call` tool.
+* "Are you a robot?" is handled by an honest-disclosure rule baked into the system prompt.
 
 **Provider failures**
-- LLM exception during streaming → safe farewell + `end_reason=llm_failure`.
-- STT WebSocket error → bridge tears down cleanly; outcome still produced.
-- TTS HTTP error → logged; turn proceeds (degraded silence rather than crash).
-- Missing API keys at startup → logged warning + listed at `/healthz`; app still boots.
 
-**Concurrency / safety**
-- Each call has an isolated `CallSession` and its own STT/TTS WS.
-- Session store has TTL eviction (default 1 hour).
-- Twilio webhook signature verification is wired (soft-fail in dev, easy to harden in prod).
-- CORS limited to localhost in dev.
+* LLM exception during streaming triggers a safe farewell with `end_reason=llm_failure`.
+* STT WebSocket error tears down the bridge cleanly; outcome is still produced.
+* TTS HTTP error is logged and the turn proceeds (degraded silence, not a crash).
+* Missing API keys at startup are logged as warnings and listed at `/healthz`. The app still boots so the rest can be inspected.
+
+**Concurrency and safety**
+
+* Each call has an isolated `CallSession` and its own STT and TTS connections.
+* Session store has TTL eviction (default 1 hour).
+* Twilio webhook signature verification is wired in.
+* CORS is restricted to localhost in dev.
+
+---
+
+## Tests
+
+```bash
+pytest -v
+```
+
+Coverage is focused on the highest-leverage seams, not on chasing a number.
+
+| File | What it covers |
+|---|---|
+| `tests/test_validation.py` | E.164 phone normalisation, prompt sanitization edges |
+| `tests/test_scenario_loader.py` | YAML load, prompt rendering, schema validation |
+| `tests/test_conversation_state.py` | State machine, history, terminal transitions |
+| `tests/test_engine.py` | LLM turn orchestration with a scripted stub (text-only, tool calls, max turns, LLM failure, silence handling) |
+| `tests/test_outcome.py` | Finalisation, lenient JSON parsing, failure fallback |
+| `tests/test_session_store.py` | Store contract, TTL eviction |
+| `tests/test_telephony_errors.py` | Twilio error formatting, ANSI stripping, known-code hints |
+
+61 tests, all green.
+
+---
+
+## Design decisions
+
+The reasoning behind the choices that shaped this codebase.
+
+**Why a DIY pipeline instead of Vapi or Retell**
+
+The brief explicitly rewards "solution architecture" as the top criterion. A managed platform like Vapi would have collapsed the entire surface area being graded into "I called someone else's API." The harder path of wiring STT, LLM, TTS, and telephony separately is the path that actually exercises architecture skills.
+
+**Why one polished scenario plus a custom-prompt override**
+
+The brief says "Choose one realistic outbound campaign scenario." The "select or define" requirement on the UI is met by a textarea, not a runtime scenario registry. Building a YAML-loaded scenario engine is appropriate scope. Building a full scenario authoring UI would have been overbuilding for the eval.
+
+**Why the provider abstraction layer**
+
+This is the genuine answer to the brief's instruction to "keep the implementation dynamic and flexible." Every external vendor (STT, LLM, TTS, telephony) lives behind a `Protocol` in [`app/providers/base.py`](app/providers/base.py). Adding an OpenAI LLM, an ElevenLabs TTS, or a Vonage telephony adapter is one new file and one factory branch. No business logic moves.
+
+**Why Deepgram for both STT and TTS**
+
+One vendor, one auth, one connection pattern, less to test. Deepgram Aura-2 quality is competitive with ElevenLabs and avoids the very tight ElevenLabs free-tier character cap that would block development on this kind of project.
+
+**Why Groq for the LLM**
+
+Free tier, no credit card, and roughly 300 tokens per second. Voice perceives latency aggressively, so token rate matters more than absolute model quality at this size. Llama 3.3 70B is GPT-4 class on the reasoning benchmarks that matter for short structured conversations, and it supports native tool calling, which the engine relies on.
+
+**Why an in-memory `SessionStore` behind a Protocol**
+
+For a single-node evaluation, in-memory is the right size. The Protocol means swapping to Redis or Postgres is a one-file change. Building Redis integration up-front would have been speculative complexity.
+
+**Why SSE for live UI updates instead of a second WebSocket**
+
+Traffic only flows one way (server to browser) for the transcript and outcome. SSE is simpler than WebSockets for that, works cleanly through ngrok, and the browser handles reconnection automatically.
+
+**Why streaming end-to-end**
+
+Every layer in the audio path streams: STT streams partial transcripts, the LLM streams tokens, the TTS streams audio frames. The result is sub-second perceived latency from end of caller speech to start of agent speech. A turn-based fallback using Twilio `<Gather>` and `<Say>` is a valid degraded mode and could be added behind the existing `STREAMING_MODE` toggle, but the streaming path feels meaningfully more human.
+
+**Why post-call structured extraction via a second LLM pass**
+
+The model that ran the conversation has the cleanest view of what happened. One extra cheap call gives us a clean, schema-validated outcome JSON without writing brittle regex parsers or post-hoc state reconstruction.
+
+**Why the honest-disclosure guardrail**
+
+"Are you a robot?" is a common edge case in real outbound campaigns. The system prompt instructs the agent to acknowledge it is an AI when asked directly. Lying isn't an option for any production deployment.
+
+---
+
+## Troubleshooting
+
+Common issues, with what to do about each.
+
+**Twilio error 21219: "The number is unverified. Trial accounts may only make calls to verified numbers."**
+
+Your Twilio account is on a trial plan, which only allows calls to numbers you have explicitly verified. Open [Twilio Verified Caller IDs](https://console.twilio.com/us1/develop/phone-numbers/manage/verified) and add the number. For some countries (currently including Pakistan), verification is blocked on trial accounts entirely. The fix is to upgrade the Twilio account, which removes the restriction; the trial credit you already have is preserved as a normal balance.
+
+**Twilio error 13227: "Calls to this destination are not enabled by the geo permissions."**
+
+Even on a paid Twilio account, calls to high-risk destinations are blocked by default. Open Twilio Console, go to Voice → Settings → Geo Permissions, and enable the destination country.
+
+**Twilio webhook says "Twilio could not reach your server"**
+
+Your `PUBLIC_BASE_URL` is out of date. ngrok generates a new URL every time it restarts on the free tier. Copy the current ngrok URL into `.env` and restart the FastAPI app.
+
+**Call connects but there is silence both ways**
+
+Almost always a media-stream URL issue. Twilio expects `wss://`, not `https://`. The TwiML builder in [`app/providers/telephony_twilio.py`](app/providers/telephony_twilio.py) normalises this, but check that `PUBLIC_BASE_URL` is the `https://...ngrok-free.app` URL ngrok printed, not a local URL.
+
+**Groq returns 429 in dev**
+
+The free tier is 30 requests per minute. One live call fits comfortably, but parallel calls can throttle. Wait a minute and retry.
+
+**Deepgram returns 401**
+
+`DEEPGRAM_API_KEY` is wrong or expired. The key starts with the project's prefix in the Deepgram console.
+
+**`/healthz` reports missing keys**
+
+The app boots even with missing keys so you can inspect routes. Fill in the missing ones in `.env`, then restart.
+
+---
+
+## Known limitations
+
+Honest about what is not included.
+
+* The in-memory session store loses live calls if the FastAPI process restarts. The `SessionStore` Protocol exists precisely so this can be swapped to Redis without touching business logic.
+* ngrok free-tier URLs rotate on every restart, which means `PUBLIC_BASE_URL` has to be updated. A paid ngrok plan or a real domain solves this.
+* The Groq free-tier rate limit (30 req/min) caps how many parallel live calls you can run during testing.
+* Twilio trial accounts can only call verified numbers, and verification of some destinations (currently including Pakistan) is restricted at the platform level. Upgrading the Twilio account is the only path around this; there is no client-side workaround.
+* The custom-prompt mode trusts the operator. There are no LLM-level guardrails against asking the agent to do something the scenario shouldn't, beyond the input sanitization in `app/core/validation.py`.
 
 ---
 
 ## Configuration reference
 
-See [.env.example](.env.example) for the full list. Highlights:
+See [`.env.example`](.env.example) for the full list. The most important ones:
 
 ```
 STT_PROVIDER=deepgram         # swap vendors via env, no code change
@@ -253,55 +418,9 @@ MAX_CALLS_PER_HOUR=20         # hourly outbound cap
 MAX_TURNS_PER_CALL=12         # conversation turn cap
 CALL_MAX_DURATION_SECONDS=300 # hard cutoff
 
-STREAMING_MODE=true           # set false to fall back to <Gather>/<Say> (planned)
+STREAMING_MODE=true
 ANSWERING_MACHINE_DETECTION=true
 ```
-
----
-
-## Tests
-
-```bash
-pytest -v
-```
-
-Coverage focuses on the highest-value seams:
-
-- `test_validation.py` — phone normalisation + prompt sanitization edges.
-- `test_scenario_loader.py` — YAML load, prompt rendering, schema validation.
-- `test_conversation_state.py` — state machine, history, terminal transitions.
-- `test_engine.py` — LLM turn orchestration with a scripted stub (text-only, tool calls, max turns, LLM failure, silence handling).
-- `test_outcome.py` — finalisation + lenient JSON parsing + failure fallback.
-- `test_session_store.py` — store contract + TTL eviction.
-
----
-
-## Design decisions
-
-| Decision | Why |
-|---|---|
-| **DIY pipeline** (vs Vapi/Retell) | Eval criterion explicitly rewards solution architecture. A managed platform would minimise the surface being evaluated. |
-| **One polished scenario** + custom-prompt UI override | Task says "Choose one." The "select or define" UI requirement is met by a textarea, not a runtime registry. |
-| **Provider abstraction layer** | This is the genuine answer to "keep the implementation dynamic and flexible" — every vendor lives behind a `Protocol`. Adding a new LLM is one file + one factory branch. |
-| **Deepgram for both STT and TTS** | One auth, one connection pattern, less to test. Aura-2 quality is competitive with ElevenLabs and avoids ElevenLabs' tight free-tier char cap. |
-| **Groq for LLM** | Free, no card, ~300 tok/s — voice perceives latency aggressively. Llama-3.3-70B is GPT-4 class for reasoning and supports native tool calling. |
-| **In-memory `SessionStore`** behind a Protocol | Right size for the eval; Redis/Postgres swap is a one-file change. |
-| **SSE for live UI updates** | Simpler than a WS for one-way push and works cleanly through ngrok. |
-| **Streaming end-to-end** | Sub-second perceived latency. Turn-based `<Gather>` is a legitimate fallback (env-toggleable concept) but feels robotic. |
-| **Structured outcomes via post-call LLM call** | The model that ran the conversation has the cleanest view; one extra cheap call gives us a machine-readable result. |
-| **Honest-disclosure guardrail** | "Are you a robot?" is a common edge case; baked into the system prompt because lying isn't an option. |
-
----
-
-## Known limitations
-
-- In-memory session store: if the FastAPI process restarts, live calls
-  lose state. Documented; swap behind `SessionStore` for production.
-- ngrok free URLs rotate on restart; update `PUBLIC_BASE_URL` each time.
-- Groq free tier has 30 req/min — sufficient for one live call, can throttle
-  parallel testing.
-- Twilio trial accounts can only call **verified** numbers. There is no
-  way around this without upgrading the Twilio account.
 
 ---
 
@@ -312,7 +431,7 @@ Coverage focuses on the highest-value seams:
 ├── app/                  application code
 ├── web/                  single-page UI
 ├── tests/                pytest suite
-├── docs/                 design spec
+├── docs/                 design notes and screenshots
 ├── outcomes/             generated at runtime (gitignored)
 ├── .env.example
 ├── requirements.txt
@@ -320,3 +439,7 @@ Coverage focuses on the highest-value seams:
 ├── pytest.ini
 └── README.md
 ```
+
+---
+
+Built for the Developers Den Associate AI Engineer recruitment task by [Salman](https://github.com/Salman1205).

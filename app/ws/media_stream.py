@@ -236,29 +236,40 @@ class MediaStreamBridge:
                 text=user_text[:200],
             )
             result = await self._engine.respond(self._session, user_text)
-            await self._speak(result.text)
+            spoken_seconds = await self._speak(result.text)
             if result.end_call:
                 self._end_reason = result.end_reason
                 self._final_farewell = result.farewell
                 self._end_requested = True
-                # Let the audio play out before we tear down the call.
-                await asyncio.sleep(1.0)
+                # _speak returns as soon as audio is queued to Twilio over the
+                # WS, but Twilio still has to play it out at real time. Wait
+                # for roughly the audio duration plus a small buffer so the
+                # farewell does not get cut off mid-sentence.
+                await asyncio.sleep(spoken_seconds + 0.6)
                 await self._inbound_audio_queue.put(None)
 
     # --- TTS playback -----------------------------------------------------
 
-    async def _speak(self, text: str) -> None:
+    async def _speak(self, text: str) -> float:
+        """Stream TTS audio to Twilio. Returns approximate duration in seconds.
+
+        Twilio Media Streams playback is mu-law 8 kHz, so 8000 bytes per
+        second. Caller can use the returned duration to wait for playback
+        to actually finish before tearing the call down.
+        """
         if not text or self._stream_sid is None:
-            return
+            return 0.0
         self._tts_cancel_event.clear()
         self._agent_speaking = True
         self._agent_speak_started_at = time.time()
+        bytes_sent = 0
         try:
             async for audio_chunk in self._tts.synthesize(text):
                 if self._tts_cancel_event.is_set():
                     log.info("ws.tts.barge_in", call_id=self._session.call_id)
                     break
                 await self._send_media(audio_chunk)
+                bytes_sent += len(audio_chunk)
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "ws.tts.error", call_id=self._session.call_id, error=str(exc)
@@ -266,6 +277,7 @@ class MediaStreamBridge:
         finally:
             self._agent_speaking = False
             self._agent_stopped_at = time.time()
+        return bytes_sent / 8000.0
 
     async def _send_media(self, audio: bytes) -> None:
         if not audio or self._stream_sid is None:

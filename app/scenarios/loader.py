@@ -77,9 +77,6 @@ class ScenarioConfig(BaseModel):
             "Do not echo the corrected value as if it still applied.\n"
             "- As soon as the caller shares their name, use it in your very next reply and "
             "naturally a couple more times through the call. Do not wait for a second confirmation.\n"
-            "- When the caller asks to reschedule, capture the proposed new day/time, "
-            "read it back once for confirmation, then call `end_call` with the new slot in the farewell. "
-            "Do not loop on confirmations.\n"
             "- When the objective is achieved (or clearly cannot be), call the `end_call` tool.\n"
         )
 

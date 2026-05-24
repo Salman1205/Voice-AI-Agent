@@ -1,9 +1,4 @@
-"""Deepgram Aura-2 streaming TTS via HTTP.
-
-We use the synchronous HTTP streaming endpoint (not the WS speak interface
-which is in beta). The audio is returned as raw mulaw at 8 kHz so it can
-be sent straight into Twilio Media Streams without resampling.
-"""
+"""Deepgram Aura-2 TTS over HTTP streaming. Returns mu-law 8 kHz for direct Twilio consumption."""
 
 from __future__ import annotations
 

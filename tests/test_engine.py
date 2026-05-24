@@ -87,29 +87,6 @@ async def test_end_call_tool_terminates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_extracted_data_tool_persists() -> None:
-    s = _new_session()
-    update_tool = {
-        "id": "call_2",
-        "type": "function",
-        "function": {
-            "name": "update_extracted_data",
-            "arguments": '{"updates": {"status": "confirmed"}}',
-        },
-    }
-    engine = ConversationEngine(
-        llm=ScriptedLLM(
-            [
-                LLMChunk(text="Got it."),
-                LLMChunk(tool_calls=[update_tool], finish_reason="tool_calls"),
-            ]
-        )
-    )
-    await engine.respond(s, "Yes please confirm")
-    assert s.extracted_data.get("status") == "confirmed"
-
-
-@pytest.mark.asyncio
 async def test_max_turns_forces_graceful_end() -> None:
     s = _new_session()
     # Push turn_count up to the cap.
@@ -142,6 +119,6 @@ async def test_silence_handler_first_warns_then_ends() -> None:
     engine = ConversationEngine(llm=ScriptedLLM([]))
     first = await engine.handle_silence(s)
     assert not first.end_call
-    assert "still there" in first.text.lower() or "there" in first.text.lower()
+    assert "still there" in first.text.lower()
     second = await engine.handle_silence(s)
     assert second.end_call

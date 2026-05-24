@@ -1,9 +1,4 @@
-"""Post-call structured outcome extraction.
-
-Makes one final LLM call to convert the freeform transcript into the
-scenario's `extraction_schema` shape. Persists the result to
-`outcomes/{call_id}.json` for human review and downstream consumption.
-"""
+"""Post-call structured outcome extraction."""
 
 from __future__ import annotations
 
@@ -21,7 +16,6 @@ from app.providers.base import LLMProvider, Message
 log = get_logger(__name__)
 
 OUTCOMES_DIR = Path("outcomes")
-OUTCOMES_DIR.mkdir(exist_ok=True)
 
 
 class OutcomeRecorder:
@@ -101,6 +95,7 @@ class OutcomeRecorder:
         return _parse_json_lenient(raw)
 
     def _persist(self, outcome: dict[str, Any]) -> None:
+        OUTCOMES_DIR.mkdir(exist_ok=True)
         path = OUTCOMES_DIR / f"{outcome['call_id']}.json"
         try:
             path.write_text(json.dumps(outcome, indent=2), encoding="utf-8")

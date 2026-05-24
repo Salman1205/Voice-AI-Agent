@@ -1,8 +1,4 @@
-"""In-memory session store with TTL eviction.
-
-Behind a small interface so a Redis/DB-backed store can replace it in
-the next round with no caller changes.
-"""
+"""In-memory session store behind a Protocol so it can be swapped for Redis or a DB."""
 
 from __future__ import annotations
 

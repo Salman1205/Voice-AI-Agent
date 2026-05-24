@@ -48,7 +48,7 @@ The default scenario is an **appointment reminder and confirmation** call for a 
 | ![Idle UI](docs/screenshots/ui-idle.png) | ![Call in progress](docs/screenshots/ui-in-call.png) |
 | The UI before placing a call. Pick a number, pick a scenario, hit start. | Live transcript streams in as you speak. Status dot reflects the call state. |
 
-**Video walkthrough:** [link goes here]
+The Twilio call logs from development show real end-to-end calls completing successfully (Direction: Outgoing API, Status: Completed). See the call logs screenshot below.
 
 The Twilio call logs from development show the system completing real end-to-end conversations:
 
@@ -265,7 +265,7 @@ Production voice agents fall apart at the edges. Each item below maps to a real 
 
 **Conversation**
 
-* Silence over six seconds prompts "Are you still there?", and a second silence ends the call.
+* Silence over ten seconds prompts "Are you still there?", and a second silence ends the call.
 * **Barge-in** (caller speaks while the agent is talking) cancels current TTS playback.
 * Hostile or out-of-scope responses are caught by guardrails in the system prompt and the `end_call` tool.
 * "Are you a robot?" is handled by an honest-disclosure rule baked into the system prompt.

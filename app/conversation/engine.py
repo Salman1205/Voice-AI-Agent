@@ -111,9 +111,7 @@ class ConversationEngine:
                 args = {}
             result = dispatch_tool(name, args)
             tool_results.append({"name": name, "arguments": args, "result": result})
-            if name == "update_extracted_data":
-                session.extracted_data.update(args.get("updates") or {})
-            elif name == "end_call":
+            if name == "end_call":
                 end_call = True
                 end_reason = args.get("reason", "agent_ended")
                 farewell = args.get("farewell") or "Thank you, goodbye."
@@ -144,8 +142,6 @@ class ConversationEngine:
         )
 
     async def handle_silence(self, session: CallSession) -> TurnResult:
-        """User has been quiet — gently re-prompt or end the call."""
-        # Re-use the recorded transcript_events to count consecutive silences.
         silences = sum(
             1
             for e in reversed(session.transcript_events)

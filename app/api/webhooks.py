@@ -121,22 +121,23 @@ async def _verify_signature(
     telephony: TwilioTelephony,
     settings: Settings,
 ) -> None:
-    """Verify Twilio's X-Twilio-Signature header. Skipped in local dev if no auth token."""
     if not settings.twilio_auth_token:
         return
     signature = request.headers.get("X-Twilio-Signature", "")
     if not signature:
-        # Twilio's request validator is lenient in dev; warn but don't block.
+        if settings.enforce_twilio_signature:
+            log.warning("twilio.signature.missing", path=str(request.url))
+            raise HTTPException(status_code=403, detail="Missing Twilio signature")
         log.warning("twilio.signature.missing", path=str(request.url))
         return
     form = await request.form()
     params = {k: str(v) for k, v in form.items()}
     full_url = str(request.url)
     if not telephony.verify_webhook_signature(full_url, params, signature):
-        # Try with query string stripped (Twilio occasionally signs without it).
         log.warning(
             "twilio.signature.invalid",
             url=full_url,
             qs=urlencode(params),
         )
-        # Soft-fail: log but don't reject in dev. In a production deploy, raise 403.
+        if settings.enforce_twilio_signature:
+            raise HTTPException(status_code=403, detail="Invalid Twilio signature")

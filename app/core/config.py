@@ -1,9 +1,4 @@
-"""Application settings loaded from environment variables.
-
-All runtime configuration lives here. Provider selection is env-driven so
-swapping vendors requires zero code changes — set STT_PROVIDER, LLM_PROVIDER,
-TTS_PROVIDER, or TELEPHONY_PROVIDER and restart.
-"""
+"""Application settings loaded from environment variables."""
 
 from __future__ import annotations
 
@@ -25,13 +20,13 @@ class Settings(BaseSettings):
     twilio_account_sid: str = Field(default="")
     twilio_auth_token: str = Field(default="")
     twilio_phone_number: str = Field(default="")
+    enforce_twilio_signature: bool = False
 
     deepgram_api_key: str = Field(default="")
     groq_api_key: str = Field(default="")
-    openai_api_key: str = Field(default="")
 
     stt_provider: Literal["deepgram"] = "deepgram"
-    llm_provider: Literal["groq", "openai"] = "groq"
+    llm_provider: Literal["groq"] = "groq"
     tts_provider: Literal["deepgram"] = "deepgram"
     telephony_provider: Literal["twilio"] = "twilio"
 
@@ -50,7 +45,6 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     def validate_required_keys(self) -> list[str]:
-        """Return list of missing critical keys. Empty list means OK."""
         missing: list[str] = []
         if not self.twilio_account_sid:
             missing.append("TWILIO_ACCOUNT_SID")
@@ -60,10 +54,8 @@ class Settings(BaseSettings):
             missing.append("TWILIO_PHONE_NUMBER")
         if not self.deepgram_api_key:
             missing.append("DEEPGRAM_API_KEY")
-        if self.llm_provider == "groq" and not self.groq_api_key:
+        if not self.groq_api_key:
             missing.append("GROQ_API_KEY")
-        if self.llm_provider == "openai" and not self.openai_api_key:
-            missing.append("OPENAI_API_KEY")
         return missing
 
 

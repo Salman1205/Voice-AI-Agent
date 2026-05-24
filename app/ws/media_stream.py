@@ -1,19 +1,4 @@
-"""Twilio Media Streams <-> Deepgram STT <-> LLM <-> Deepgram TTS bridge.
-
-This is the realtime hot path. Twilio sends us inbound audio over a
-WebSocket as base64-encoded mu-law frames. We forward them to Deepgram
-for streaming STT. When Deepgram emits a final transcript we run a
-conversation turn, then stream the TTS audio back to Twilio as outbound
-media events.
-
-Edge cases handled here:
-- Silence timeout -> re-prompt then end.
-- Barge-in (caller speaks while agent is talking) -> cancel current TTS.
-- LLM/STT/TTS failure -> graceful farewell.
-- Caller hangup -> mid-call termination with partial outcome.
-- Max-turn / max-duration caps.
-- Stream timing for chunked playback.
-"""
+"""WebSocket bridge between Twilio Media Streams and the conversation engine."""
 
 from __future__ import annotations
 
@@ -36,7 +21,6 @@ from app.store.sessions import SessionStore
 
 log = get_logger(__name__)
 
-# Tuned for natural conversation. Top voice agents (Vapi/Retell) use 8-12s.
 SILENCE_TIMEOUT_SECONDS = 10.0
 CALL_HARD_TIMEOUT_SECONDS_DEFAULT = 300
 
@@ -70,6 +54,10 @@ class MediaStreamBridge:
         self._inbound_audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
         self._last_user_speech_at: float = time.time()
         self._last_final_transcript: str = ""
+        # Serialises turn execution so a barge-in arriving while the previous
+        # LLM call is still in flight does not produce overlapping responses
+        # or interleaved writes to session.history.
+        self._turn_lock = asyncio.Lock()
         self._agent_speaking = False
         self._agent_speak_started_at: float = 0.0
         self._agent_stopped_at: float = 0.0
@@ -178,16 +166,10 @@ class MediaStreamBridge:
         try:
             async for transcript in self._stt.stream(self._audio_generator()):
                 if not transcript.is_final:
-                    # Barge-in handling. Phone-line echo of the agent's own
-                    # voice round-trips back within 100-300ms and can be
-                    # transcribed by Deepgram as if the caller spoke
-                    # (especially short syllables like "Hi"). Top voice AI
-                    # agents use a grace window at the start of each TTS
-                    # utterance to ignore these self-echoes. We block ALL
-                    # interim signals (including text-bearing ones) for the
-                    # first 800ms — real user barge-in within that window
-                    # is uncommon, and ignoring it is far better than
-                    # cutting our own opening line off after one word.
+                    # Phone-line echo of the agent's own voice round-trips back
+                    # within 100-300ms and Deepgram can transcribe it as if the
+                    # caller spoke. Ignore interim signals for the first 800ms
+                    # of each TTS utterance so we don't cut ourselves off.
                     if self._agent_speaking:
                         speak_age = time.time() - self._agent_speak_started_at
                         if speak_age < 0.8:
@@ -247,20 +229,21 @@ class MediaStreamBridge:
     # --- Turn execution ---------------------------------------------------
 
     async def _run_turn(self, user_text: str) -> None:
-        log.info(
-            "ws.user_utterance",
-            call_id=self._session.call_id,
-            text=user_text[:200],
-        )
-        result = await self._engine.respond(self._session, user_text)
-        await self._speak(result.text)
-        if result.end_call:
-            self._end_reason = result.end_reason
-            self._final_farewell = result.farewell
-            self._end_requested = True
-            # Give the audio a moment to play out before we tear down.
-            await asyncio.sleep(1.0)
-            await self._inbound_audio_queue.put(None)
+        async with self._turn_lock:
+            log.info(
+                "ws.user_utterance",
+                call_id=self._session.call_id,
+                text=user_text[:200],
+            )
+            result = await self._engine.respond(self._session, user_text)
+            await self._speak(result.text)
+            if result.end_call:
+                self._end_reason = result.end_reason
+                self._final_farewell = result.farewell
+                self._end_requested = True
+                # Let the audio play out before we tear down the call.
+                await asyncio.sleep(1.0)
+                await self._inbound_audio_queue.put(None)
 
     # --- TTS playback -----------------------------------------------------
 

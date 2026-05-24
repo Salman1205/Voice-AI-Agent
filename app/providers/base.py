@@ -1,14 +1,8 @@
-"""Provider protocols.
+"""Provider Protocols for STT, LLM, TTS, and telephony.
 
-These are the seams that make the system 'dynamic and flexible': any
-component can be swapped via env config without touching business logic.
-
-Conventions:
-- All audio is mu-law (G.711) at 8 kHz, mono — the Twilio Media Streams format.
-- STT and TTS providers expose async iterators so they integrate naturally
-  with the WebSocket media bridge.
-- LLM yields plain text tokens; tool-call orchestration lives in the
-  conversation engine to keep providers thin.
+Audio is mu-law G.711 at 8 kHz mono throughout (the Twilio Media Streams format).
+STT and TTS expose async iterators. LLM yields plain text tokens; tool dispatch
+lives in the conversation engine.
 """
 
 from __future__ import annotations

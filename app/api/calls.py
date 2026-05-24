@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -279,8 +280,6 @@ async def stream_call(
 
 
 async def _exceeds_hourly_cap(store: SessionStore, cap: int) -> bool:
-    import time
-
     cutoff = time.time() - 3600
     count = 0
     for s in await store.list_all():

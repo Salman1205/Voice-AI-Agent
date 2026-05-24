@@ -179,6 +179,8 @@ Open http://localhost:8000.
 4. Answer it. Talk to the agent. Watch the transcript appear live in the UI.
 5. When the call ends, the structured outcome JSON is shown in the UI and written to `outcomes/<call_id>.json`.
 
+**Note on Twilio trial accounts:** when you answer, Twilio plays a recorded trial-account message first ("You have a trial account, press any key to execute your code"). Press any key on your phone to proceed — only then will the agent's opening line stream through. This is a Twilio trial restriction and is removed once the account is upgraded.
+
 To sanity-check that every provider connects before placing a real call:
 
 ```bash

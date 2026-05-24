@@ -81,7 +81,10 @@ class ScenarioConfig(BaseModel):
             "Do not echo the corrected value as if it still applied.\n"
             "- As soon as the caller shares their name, use it in your very next reply and "
             "naturally a couple more times through the call. Do not wait for a second confirmation.\n"
-            "- When the objective is achieved (or clearly cannot be), call the `end_call` tool.\n"
+            "- Only call `end_call` AFTER the caller has explicitly confirmed (yes / okay / that works) "
+            "OR has explicitly said goodbye OR has clearly indicated they cannot help. "
+            "Asking the caller a question (\"Is that okay?\", \"Does that work?\") is NOT a place "
+            "to call `end_call` — wait for the caller's actual reply first.\n"
         )
 
     def render_opening_line(self, context: dict[str, str] | None = None) -> str:

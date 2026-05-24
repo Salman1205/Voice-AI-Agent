@@ -168,14 +168,24 @@ class MediaStreamBridge:
                 if not transcript.is_final:
                     # Phone-line echo of the agent's own voice round-trips back
                     # within 100-300ms and Deepgram can transcribe it as if the
-                    # caller spoke. Ignore interim signals for the first 800ms
-                    # of each TTS utterance so we don't cut ourselves off.
+                    # caller spoke. Ignore interim signals for the first part
+                    # of each TTS utterance so we do not cut ourselves off.
+                    # The opening line is held longest because it tends to be
+                    # the longest utterance and there is no real reason a
+                    # caller would interrupt the very first greeting.
                     if self._agent_speaking:
                         speak_age = time.time() - self._agent_speak_started_at
-                        if speak_age < 0.8:
+                        first_turn = self._session.turn_count <= 1
+                        guard_seconds = 2.5 if first_turn else 1.4
+                        if speak_age < guard_seconds:
                             continue
-                        if transcript.text:
-                            self._session.interrupt_count += 1
+                        # Require a non-trivial interim transcript before
+                        # treating it as a real barge-in. Single-word or
+                        # whitespace interims are almost always echo.
+                        interim_text = (transcript.text or "").strip()
+                        if len(interim_text) < 3:
+                            continue
+                        self._session.interrupt_count += 1
                         self._tts_cancel_event.set()
                         await self._send_clear()
                     self._last_user_speech_at = time.time()

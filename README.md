@@ -9,7 +9,7 @@
 
 > An outbound voice agent that places a real phone call, holds a context-aware conversation with the person who picks up, and produces a structured outcome JSON when the call ends.
 
-Built for the **Developers Den Associate AI Engineer** task. The brief asked for a working voice agent and graded on four things: clean implementation, FastAPI structure, solution architecture, and context-aware conversation. The codebase is organised around exactly those four axes.
+The codebase is organised around four axes: clean implementation, idiomatic FastAPI structure, a layered solution architecture with provider abstraction, and a conversation engine that stays context-aware across turns.
 
 <p align="center">
   <img src="docs/screenshots/ui-hero.png" alt="Voice AI Agent UI" width="780">
